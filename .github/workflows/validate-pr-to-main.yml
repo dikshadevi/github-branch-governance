@@ -1,0 +1,76 @@
+name: Validate PR to main
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  validate-branch-merged-with-development:
+    name: Check branch already merged with development
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch required branches
+        run: |
+          git fetch origin main
+          git fetch origin development
+
+      - name: Show PR details
+        run: |
+          echo "PR Source Branch: ${{ github.head_ref }}"
+          echo "PR Target Branch: ${{ github.base_ref }}"
+          echo "Current commit:"
+          git log -1 --oneline
+
+      - name: Check PR branch changes are already merged into development
+        run: |
+          echo "Checking whether PR branch changes are already present in development..."
+
+          PR_BRANCH="${{ github.head_ref }}"
+
+          git fetch origin "$PR_BRANCH"
+
+          if git merge-base --is-ancestor HEAD origin/development; then
+            echo "Success: This PR branch is already merged into development."
+          else
+            echo "Error: This PR branch is not merged into development yet."
+            echo ""
+            echo "Before creating/merging PR to main, first merge this branch into development."
+            echo ""
+            echo "Required flow:"
+            echo "1. Create PR: $PR_BRANCH → development"
+            echo "2. Merge it into development after review/testing"
+            echo "3. Then create PR: $PR_BRANCH → main"
+            exit 1
+          fi
+
+      - name: Check PR branch can merge cleanly with main
+        run: |
+          echo "Checking whether PR branch can merge cleanly with main..."
+
+          git checkout -b temp-main-validation HEAD
+
+          if git merge --no-commit --no-ff origin/main; then
+            echo "Success: PR branch can merge cleanly with main."
+            git merge --abort || true
+          else
+            echo "Error: PR branch has conflicts with main."
+            echo ""
+            echo "Please update your branch with latest main and resolve conflicts:"
+            echo "git checkout ${{ github.head_ref }}"
+            echo "git fetch origin"
+            echo "git merge origin/main"
+            echo "git push origin ${{ github.head_ref }}"
+            exit 1
+          fi
